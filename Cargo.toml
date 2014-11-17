@@ -1,0 +1,9 @@
+[package]
+
+name = "rustclient"
+version = "0.0.1"
+authors = [ "Kevin Burke <kev@inburke.com>" ]
+
+[[bin]]
+
+name = "hello"

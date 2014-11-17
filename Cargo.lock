@@ -1,0 +1,4 @@
+[root]
+name = "rustclient"
+version = "0.0.1"
+
