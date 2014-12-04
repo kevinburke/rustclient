@@ -6,4 +6,4 @@ authors = [ "Kevin Burke <kev@inburke.com>" ]
 
 [[bin]]
 
-name = "hello"
+name = "dns"

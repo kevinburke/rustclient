@@ -10,7 +10,8 @@ fn lookup(host: &'static str, timeout_duration: time::Duration) -> io::IoResult<
     let mut t = timer::Timer::new().unwrap();
     let timeout = t.oneshot(timeout_duration);
 
-    let detail = format!("Failed to resolve {} after {}", host, timeout_duration);
+    let detail = format!("Failed to resolve {} after {} milliseconds", 
+                         host, timeout_duration.num_milliseconds());
 
     spawn(proc() {
         tx.send(addrinfo::get_host_addresses(host));
@@ -38,6 +39,6 @@ fn main() {
         Ok(addrs) => {
             println!("{}", addrs)
         },
-        Err(why) => panic!(why),
+        Err(why) => println!("{}", why),
     }
 }
