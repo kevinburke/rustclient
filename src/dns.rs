@@ -5,7 +5,7 @@ use std::io::timer;
 use std::io::net::addrinfo;
 use std::io::net::ip;
 
-fn lookup(host: &'static str, timeout_duration: time::Duration) -> io::IoResult<Vec<ip::IpAddr>> {
+pub fn lookup(host: &'static str, timeout_duration: time::Duration) -> io::IoResult<Vec<ip::IpAddr>> {
     let (tx, rx): (Sender<io::IoResult<Vec<ip::IpAddr>>>, Receiver<io::IoResult<Vec<ip::IpAddr>>>) = comm::channel();
     let mut t = timer::Timer::new().unwrap();
     let timeout = t.oneshot(timeout_duration);
@@ -33,12 +33,12 @@ fn lookup(host: &'static str, timeout_duration: time::Duration) -> io::IoResult<
 }
 
 fn main() {
-    //let addrs = addrinfo::get_host_addresses("api.twilio.com");
-    let lresult = lookup("api.twilio.com", time::Duration::seconds(3));
-    match lresult {
-        Ok(addrs) => {
-            println!("{}", addrs)
-        },
-        Err(why) => println!("{}", why),
-    }
+    //http::get("https://api.twilio.com")
+    //let lresult = lookup("api.twilio.com", time::Duration::seconds(3));
+    //match lresult {
+        //Ok(addrs) => {
+            //println!("{}", addrs)
+        //},
+        //Err(why) => println!("{}", why),
+    //}
 }

@@ -4,6 +4,6 @@ name = "rustclient"
 version = "0.0.1"
 authors = [ "Kevin Burke <kev@inburke.com>" ]
 
-[[bin]]
+[dependencies.url]
+git = "https://github.com/servo/rust-url"
 
-name = "dns"
