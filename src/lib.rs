@@ -19,7 +19,7 @@ pub fn lookup(host: &str, timeout_duration: time::Duration) -> io::IoResult<Vec<
     let timeout = t.oneshot(timeout_duration);
 
     let detail = format!("Failed to resolve {} after {} milliseconds", 
-                         ownedhost.as_slice(), timeout_duration.num_milliseconds());
+                         ownedhost, timeout_duration.num_milliseconds());
 
     spawn(proc() {
         tx.send(addrinfo::get_host_addresses(ownedhost.as_slice()));
@@ -45,11 +45,28 @@ fn domain_is_ipaddr(domain: &str) -> bool {
     return from_str::<ip::IpAddr>(domain).is_some()
 }
 
+fn get_port(url: &Url) -> u16 {
+    let maybeport = url.port();
+    match maybeport {
+        Some(port) => {
+            port
+        }
+        None => {
+            if url.scheme == "https" {
+                443
+            } else {
+                80
+            }
+        }
+    }
+}
+
 /// Make a HTTP request and return a response (eventually)
 pub fn get(raw_url: &str) -> bool {
     let parsed_url = Url::parse(raw_url);
     match parsed_url {
         Ok(url) => {
+            let port = url.port();
             match url.domain() {
                 Some(d) => {
                     let staticd = d;
@@ -79,4 +96,19 @@ fn test_domain() {
     assert!(domain_is_ipaddr("::1"));
     assert!(!domain_is_ipaddr("api.twilio.com"));
     assert!(!domain_is_ipaddr("foo"));
+}
+
+#[test]
+fn test_get_port() {
+    let httpsuri = Url::parse("https://api.twilio.com").unwrap();
+    assert_eq!(get_port(&httpsuri), 443)
+
+    let httpsuriport = Url::parse("https://api.twilio.com:5678").unwrap();
+    assert_eq!(get_port(&httpsuriport), 5678)
+
+    let httpuriport = Url::parse("http://api.twilio.com:5678").unwrap();
+    assert_eq!(get_port(&httpuriport), 5678)
+
+    let httpuri = Url::parse("http://api.twilio.com").unwrap();
+    assert_eq!(get_port(&httpuri), 80)
 }
