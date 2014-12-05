@@ -3,12 +3,11 @@ extern crate url;
 use std::comm;
 use std::io;
 use std::time;
-use std::result::{Result};
 use std::io::timer;
 use std::io::net::ip;
 use std::io::net::addrinfo;
 
-use url::{Url, SchemeData, ParseError};
+use url::{Url, ParseError};
 
 /// Find a list of IP addresses for the given host. Give up after
 /// `timeout_duration` if the DNS server does not return a response.
@@ -61,6 +60,11 @@ fn get_port(url: &Url) -> u16 {
     }
 }
 
+fn make_connection(host: &ip::IpAddr, port: ip::Port) -> io::IoResult<TcpStream> {
+    let s = ip::SocketAddr{ip: *host, port: port};
+    return io::TcpStream::connect_timeout(s, time::Duration::milliseconds(3100)).unwrap();
+}
+
 /// Make a HTTP request and return a response (eventually)
 pub fn get(raw_url: &str) -> bool {
     let parsed_url = Url::parse(raw_url);
@@ -69,8 +73,29 @@ pub fn get(raw_url: &str) -> bool {
             let port = get_port(&url);
             match url.domain() {
                 Some(d) => {
-                    let addrs = lookup(d, time::Duration::seconds(30));
-                    println!("{}", addrs);
+                    if domain_is_ipaddr(d) {
+                    } else {
+                        let maybeaddrs = lookup(d, time::Duration::seconds(30));
+                        match maybeaddrs {
+                            Ok(addrs) => {
+                                for addr in addrs.iter() {
+                                    match make_connection(addr, port) {
+                                        Ok(sock) => {
+
+                                        }
+                                        Err(e) => {
+                                            println!("{}", e);
+                                            return false;
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                println!("{}", e);
+                                return false;
+                            }
+                        }
+                    }
                 }
                 None => { return false ; }
             }
@@ -85,7 +110,7 @@ pub fn get(raw_url: &str) -> bool {
 
 #[test]
 fn test_get() {
-    let out = get("https://api.twilio.com");
+    get("https://api.twilio.com");
     assert!(false)
 }
 
