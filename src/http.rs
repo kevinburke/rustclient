@@ -13,17 +13,17 @@ pub fn get(raw_url: &str) -> bool {
     let url_r = Url::parse(raw_url);
     match url_r {
         Ok(ref url) => {
-            let dom = url.domain(); 
-            match dom {
-                Some(d) => {
-                    if (domain_is_ipaddr(d)) {
-                    } else {
-                        let addrs = dns::lookup(d, time::Duration::seconds(30));
-                        println!("{}", addrs);
-                    }
-                }
-                None => { return false ; }
-            }
+            let dom = "foobar"; 
+            //match dom {
+                //Some(d) => {
+                    //if (domain_is_ipaddr(d)) {
+                    //} else {
+                        //let addrs = dns::lookup(d, time::Duration::seconds(30));
+                        //println!("{}", addrs);
+                    //}
+                //}
+                //None => { return false ; }
+            //}
         }
         Err(e) => {
             println!("{}", e);
