@@ -66,11 +66,10 @@ pub fn get(raw_url: &str) -> bool {
     let parsed_url = Url::parse(raw_url);
     match parsed_url {
         Ok(url) => {
-            let port = url.port();
+            let port = get_port(&url);
             match url.domain() {
                 Some(d) => {
-                    let staticd = d;
-                    let addrs = lookup(staticd, time::Duration::seconds(30));
+                    let addrs = lookup(d, time::Duration::seconds(30));
                     println!("{}", addrs);
                 }
                 None => { return false ; }
