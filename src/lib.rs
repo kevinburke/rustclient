@@ -11,6 +11,7 @@ use std::io::net::ip;
 use std::io::net::addrinfo;
 
 use url::{Url};
+use url::form_urlencoded;
 
 static VERSION: &'static str = "0.0.1";
 
@@ -101,6 +102,14 @@ pub struct RequestOptions {
     dns_timeout: time::Duration,
 }
 
+pub struct Response {
+    // XXX use custom types for these two.
+    status: int,
+    version: int,
+    headers: collections::HashMap<String, Vec<String>>,
+    body: io::BufferedReader<io::TcpStream>,
+}
+
 impl Default for RequestOptions {
     fn default() -> RequestOptions {
         let mut h = collections::HashMap::new();
@@ -122,8 +131,32 @@ impl Default for RequestOptions {
     }
 }
 
-/// Make a HTTP request and return a response (eventually)
 pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
+    request("GET", raw_url, ro)
+}
+
+pub fn post(raw_url: &str, data: collections::HashMap<String, Vec<String>>, ro: RequestOptions) -> bool {
+    let ropost = RequestOptions{
+        data: Some(data),
+        ..ro
+    };
+    request("POST", raw_url, ropost)
+}
+
+pub fn put(raw_url: &str, data: collections::HashMap<String, Vec<String>>, ro: RequestOptions) -> bool {
+    let ropost = RequestOptions{
+        data: Some(data),
+        ..ro
+    };
+    request("PUT", raw_url, ropost)
+}
+
+pub fn delete(raw_url: &str, ro: RequestOptions) -> bool {
+    request("DELETE", raw_url, ro)
+}
+
+/// Make a HTTP request and return a response (eventually)
+pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
     let parsed_url = Url::parse(raw_url);
     let url = match parsed_url {
         Ok(url) => { url }
@@ -141,45 +174,56 @@ pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
         Some(d) => { d }
         None => { return false ; }
     };
-    if domain_is_ipaddr(dom) {
-    } else {
-        let maybeaddrs = lookup(dom, ro.dns_timeout);
-        let addrs = match maybeaddrs {
-            Ok(addrs) => { addrs }
-            Err(e) => {
-                println!("{}", e);
-                return false;
-            }
-        };
-        let mut sock = match find_working_addr(addrs, port, ro.connect_timeout) {
-            Some(s) => { s }
-            None => {
-                println!("coludnt establish connection");
-                return false;
-            }
-        };
-        let mut request_buf = String::new();
-        let topline = format!("GET {} HTTP/1.0\r\n", path);
-        request_buf.push_str(topline.as_slice());
-        for (key, val_tuple) in ro.headers.iter() {
-            for val in val_tuple.iter() {
-                let hdr = format!("{key}: {value}\r\n", key=key, value=val);
-                request_buf.push_str(hdr.as_slice());
+    let addrs = match from_str::<ip::IpAddr>(dom) {
+        Some(domain) => { vec![domain] }
+        None => {
+            let maybeaddrs = lookup(dom, ro.dns_timeout);
+            match maybeaddrs {
+                Ok(addrs) => { addrs }
+                Err(e) => {
+                    println!("{}", e);
+                    return false;
+                }
             }
         }
-        request_buf.push_str("\r\n");
-        println!("{}", request_buf);
-        sock.write(request_buf.as_bytes());
-        let mut reader = io::BufferedReader::new(sock);
-        let rtopline = match reader.read_to_end() {
-            Ok(rt) => { rt }
-            Err(e) => {
-                println!("{}", e);
-                return false;
-            }
-        };
-        println!("{}", string::String::from_utf8(rtopline));
+    }; 
+    let mut sock = match find_working_addr(addrs, port, ro.connect_timeout) {
+        Some(s) => { s }
+        None => {
+            println!("coludnt establish connection");
+            return false;
+        }
+    };
+    let mut request_buf = String::new();
+    let topline = format!("{method} {path} HTTP/1.0\r\n", method=method, path=path);
+    request_buf.push_str(topline.as_slice());
+    for (key, val_tuple) in ro.headers.iter() {
+        for val in val_tuple.iter() {
+            let hdr = format!("{key}: {value}\r\n", key=key, value=val);
+            request_buf.push_str(hdr.as_slice());
+        }
     }
+    if let Some(d) = ro.data {
+        if ro.headers.contains_key("content-type") {
+
+        }
+    }
+    if let Some(d) = ro.data {
+        let body = url_formencoded.serialize(d);
+        request_buf.push_str(body);
+    }
+    request_buf.push_str("\r\n");
+    println!("{}", request_buf);
+    sock.write(request_buf.as_bytes());
+    let mut reader = io::BufferedReader::new(sock);
+    let rtopline = match reader.read_line() {
+        Ok(rt) => { rt }
+        Err(e) => {
+            println!("{}", e);
+            return false;
+        }
+    };
+    println!("{}", rtopline);
     return true;
 }
 
@@ -192,6 +236,21 @@ fn test_get() {
         ..Default::default()
     };
     get("http://api.twilio.com", ropts);
+    assert!(false)
+}
+
+#[test]
+fn test_ip_get() {
+    let mut h = collections::HashMap::new();
+    h.insert("Host".to_string(), vec!["jsonip.com".to_string()]);
+    let ropts = RequestOptions{
+        headers: h,
+        timeout: time::Duration::seconds(1),
+        dns_timeout: time::Duration::seconds(1),
+        connect_timeout: time::Duration::seconds(1),
+        ..Default::default()
+    };
+    get("http://96.126.98.124", ropts);
     assert!(false)
 }
 
