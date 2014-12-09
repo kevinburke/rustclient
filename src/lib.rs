@@ -143,7 +143,7 @@ pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
     };
     if domain_is_ipaddr(dom) {
     } else {
-        let maybeaddrs = lookup(dom, ro.connect_timeout);
+        let maybeaddrs = lookup(dom, ro.dns_timeout);
         let addrs = match maybeaddrs {
             Ok(addrs) => { addrs }
             Err(e) => {
@@ -158,8 +158,18 @@ pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
                 return false;
             }
         };
-        let topline = format!("GET {} HTTP/1.0\r\n\r\n", path);
-        sock.write(topline.as_bytes());
+        let mut request_buf = String::new();
+        let topline = format!("GET {} HTTP/1.0\r\n", path);
+        request_buf.push_str(topline.as_slice());
+        for (key, val_tuple) in ro.headers.iter() {
+            for val in val_tuple.iter() {
+                let hdr = format!("{key}: {value}\r\n", key=key, value=val);
+                request_buf.push_str(hdr.as_slice());
+            }
+        }
+        request_buf.push_str("\r\n");
+        println!("{}", request_buf);
+        sock.write(request_buf.as_bytes());
         let mut reader = io::BufferedReader::new(sock);
         let rtopline = match reader.read_to_end() {
             Ok(rt) => { rt }
@@ -177,6 +187,8 @@ pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
 fn test_get() {
     let ropts = RequestOptions{
         timeout: time::Duration::seconds(1),
+        dns_timeout: time::Duration::seconds(1),
+        connect_timeout: time::Duration::seconds(1),
         ..Default::default()
     };
     get("http://api.twilio.com", ropts);
