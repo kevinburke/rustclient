@@ -5,6 +5,7 @@ use std::comm;
 use std::default::Default;
 use std::io;
 use std::time;
+use std::string;
 use std::io::timer;
 use std::io::net::ip;
 use std::io::net::addrinfo;
@@ -69,6 +70,22 @@ fn make_connection(host: &ip::IpAddr, port: ip::Port, timeout: time::Duration) -
     return io::TcpStream::connect_timeout(s, timeout);
 }
 
+// XXX, there must be a better way of writing this.
+fn find_working_addr(addrs: Vec<ip::IpAddr>, port: ip::Port, timeout: time::Duration) -> Option<io::TcpStream> {
+    for addr in addrs.iter() {
+        match make_connection(addr, port, timeout) {
+            Err(e) => {
+                println!("{}", e);
+                false
+            }
+            Ok(s) => { 
+                return Some(s);
+            }
+        };
+    }
+    return None
+}
+
 // XXX: see https://github.com/rust-lang/rust/issues/19650
 // pub type Header = collections::HashMap<String, Vec<String>>;
 
@@ -115,9 +132,9 @@ pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
             return false;
         }
     };
-    let path = match url.path() {
-        Some(d) => { d }
-        None => { return false ; }
+    let path = match url.serialize_path() {
+        Some(p) => { p }
+        None => { return false }
     };
     let port = get_port(&url);
     let dom = match url.domain() {
@@ -134,17 +151,24 @@ pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
                 return false;
             }
         };
-        for addr in addrs.iter() {
-            let mut sock = match make_connection(addr, port, ro.connect_timeout) {
-                Ok(sock) => { sock }
-                Err(e) => {
-                    println!("{}", e);
-                    return false;
-                }
-            };
-            let topline = format!("GET {} HTTP/1.0\r\n", path);
-            sock.write(topline.as_bytes());
-        }
+        let mut sock = match find_working_addr(addrs, port, ro.connect_timeout) {
+            Some(s) => { s }
+            None => {
+                println!("coludnt establish connection");
+                return false;
+            }
+        };
+        let topline = format!("GET {} HTTP/1.0\r\n\r\n", path);
+        sock.write(topline.as_bytes());
+        let mut reader = io::BufferedReader::new(sock);
+        let rtopline = match reader.read_to_end() {
+            Ok(rt) => { rt }
+            Err(e) => {
+                println!("{}", e);
+                return false;
+            }
+        };
+        println!("{}", string::String::from_utf8(rtopline));
     }
     return true;
 }
@@ -155,7 +179,7 @@ fn test_get() {
         timeout: time::Duration::seconds(1),
         ..Default::default()
     };
-    get("https://api.twilio.com", ropts);
+    get("http://api.twilio.com", ropts);
     assert!(false)
 }
 
