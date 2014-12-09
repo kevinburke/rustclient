@@ -1,13 +1,17 @@
 extern crate url;
 
+use std::collections;
 use std::comm;
+use std::default::Default;
 use std::io;
 use std::time;
 use std::io::timer;
 use std::io::net::ip;
 use std::io::net::addrinfo;
 
-use url::{Url, ParseError};
+use url::{Url};
+
+static VERSION: &'static str = "0.0.1";
 
 /// Find a list of IP addresses for the given host. Give up after
 /// `timeout_duration` if the DNS server does not return a response.
@@ -60,49 +64,86 @@ fn get_port(url: &Url) -> u16 {
     }
 }
 
-fn make_connection(host: &ip::IpAddr, port: ip::Port) -> io::IoResult<TcpStream> {
+fn make_connection(host: &ip::IpAddr, port: ip::Port, timeout: time::Duration) -> io::IoResult<io::TcpStream> {
     let s = ip::SocketAddr{ip: *host, port: port};
-    return io::TcpStream::connect_timeout(s, time::Duration::milliseconds(3100)).unwrap();
+    return io::TcpStream::connect_timeout(s, timeout);
+}
+
+// XXX: see https://github.com/rust-lang/rust/issues/19650
+// pub type Header = collections::HashMap<String, Vec<String>>;
+
+pub struct RequestOptions {
+    headers: collections::HashMap<String, Vec<String>>,
+    verify: bool,
+    // XXX: should these be str's ?
+    data: Option<collections::HashMap<String, Vec<String>>>,
+    params: Option<collections::HashMap<String, Vec<String>>>,
+    auth: Option<Vec<String>>,
+    timeout: time::Duration,
+    connect_timeout: time::Duration,
+    dns_timeout: time::Duration,
+}
+
+impl Default for RequestOptions {
+    fn default() -> RequestOptions {
+        let mut h = collections::HashMap::new();
+        let vsn = format!("rustclient/{}", VERSION);
+        h.insert("User-Agent".to_string(), vec![vsn]);
+        let nodata: Option<collections::HashMap<String, Vec<String>>> = None;
+        let noparams: Option<collections::HashMap<String, Vec<String>>> = None;
+        let noauth: Option<Vec<String>> = None;
+        return RequestOptions{ 
+            headers: h,
+            verify: true,
+            data: nodata,
+            params: noparams,
+            auth: noauth,
+            timeout: time::Duration::seconds(30),
+            dns_timeout: time::Duration::seconds(30),
+            connect_timeout: time::Duration::seconds(30),
+        }
+    }
 }
 
 /// Make a HTTP request and return a response (eventually)
-pub fn get(raw_url: &str) -> bool {
+pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
     let parsed_url = Url::parse(raw_url);
-    match parsed_url {
-        Ok(url) => {
-            let port = get_port(&url);
-            match url.domain() {
-                Some(d) => {
-                    if domain_is_ipaddr(d) {
-                    } else {
-                        let maybeaddrs = lookup(d, time::Duration::seconds(30));
-                        match maybeaddrs {
-                            Ok(addrs) => {
-                                for addr in addrs.iter() {
-                                    match make_connection(addr, port) {
-                                        Ok(sock) => {
-
-                                        }
-                                        Err(e) => {
-                                            println!("{}", e);
-                                            return false;
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                println!("{}", e);
-                                return false;
-                            }
-                        }
-                    }
-                }
-                None => { return false ; }
-            }
-        }
+    let url = match parsed_url {
+        Ok(url) => { url }
         Err(e) => {
             println!("{}", e);
             return false;
+        }
+    };
+    let path = match url.path() {
+        Some(d) => { d }
+        None => { return false ; }
+    };
+    let port = get_port(&url);
+    let dom = match url.domain() {
+        Some(d) => { d }
+        None => { return false ; }
+    };
+    if domain_is_ipaddr(dom) {
+    } else {
+        let maybeaddrs = lookup(dom, ro.connect_timeout);
+        let addrs = match maybeaddrs {
+            Ok(addrs) => { addrs }
+            Err(e) => {
+                println!("{}", e);
+                return false;
+            }
+        };
+        for addr in addrs.iter() {
+            let mut sock = match make_connection(addr, port, ro.connect_timeout) {
+                Ok(sock) => { sock }
+                Err(e) => {
+                    println!("{}", e);
+                    return false;
+                }
+            };
+            let topline = format!("GET {} HTTP/1.0\r\n", path);
+            sock.write(topline.as_bytes());
         }
     }
     return true;
@@ -110,7 +151,11 @@ pub fn get(raw_url: &str) -> bool {
 
 #[test]
 fn test_get() {
-    get("https://api.twilio.com");
+    let ropts = RequestOptions{
+        timeout: time::Duration::seconds(1),
+        ..Default::default()
+    };
+    get("https://api.twilio.com", ropts);
     assert!(false)
 }
 
