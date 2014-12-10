@@ -1,11 +1,12 @@
+extern crate serialize;
 extern crate url;
 
+use serialize::json;
 use std::collections;
 use std::comm;
 use std::default::Default;
 use std::io;
 use std::time;
-use std::string;
 use std::io::timer;
 use std::io::net::ip;
 use std::io::net::addrinfo;
@@ -14,6 +15,24 @@ use url::{Url};
 use url::form_urlencoded;
 
 static VERSION: &'static str = "0.0.1";
+
+pub enum Body {
+    FormUrlEncoded(collections::HashMap<String, Vec<String>>),
+    JSON(json::Json),
+}
+
+// ugh. rust-url requires [(key, val)] combos, but we have {key: [val1, val2]}
+fn map_to_vec(map: collections::HashMap<String, Vec<String>>) -> Vec<(String, String)> {
+    let mut vec = Vec::new();
+    for (key, val_tuple) in map.iter() {
+        for val in val_tuple.iter() {
+            let ownedkey = key.clone();
+            let ownedval = val.clone();
+            vec.push((ownedkey, ownedval));
+        }
+    }
+    vec
+}
 
 /// Find a list of IP addresses for the given host. Give up after
 /// `timeout_duration` if the DNS server does not return a response.
@@ -94,7 +113,7 @@ pub struct RequestOptions {
     headers: collections::HashMap<String, Vec<String>>,
     verify: bool,
     // XXX: should these be str's ?
-    data: Option<collections::HashMap<String, Vec<String>>>,
+    data: Option<Body>,
     params: Option<collections::HashMap<String, Vec<String>>>,
     auth: Option<Vec<String>>,
     timeout: time::Duration,
@@ -115,7 +134,7 @@ impl Default for RequestOptions {
         let mut h = collections::HashMap::new();
         let vsn = format!("rustclient/{}", VERSION);
         h.insert("User-Agent".to_string(), vec![vsn]);
-        let nodata: Option<collections::HashMap<String, Vec<String>>> = None;
+        let nodata: Option<Body> = None;
         let noparams: Option<collections::HashMap<String, Vec<String>>> = None;
         let noauth: Option<Vec<String>> = None;
         return RequestOptions{ 
@@ -135,7 +154,7 @@ pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
     request("GET", raw_url, ro)
 }
 
-pub fn post(raw_url: &str, data: collections::HashMap<String, Vec<String>>, ro: RequestOptions) -> bool {
+pub fn post(raw_url: &str, data: Body, ro: RequestOptions) -> bool {
     let ropost = RequestOptions{
         data: Some(data),
         ..ro
@@ -143,7 +162,7 @@ pub fn post(raw_url: &str, data: collections::HashMap<String, Vec<String>>, ro: 
     request("POST", raw_url, ropost)
 }
 
-pub fn put(raw_url: &str, data: collections::HashMap<String, Vec<String>>, ro: RequestOptions) -> bool {
+pub fn put(raw_url: &str, data: Body, ro: RequestOptions) -> bool {
     let ropost = RequestOptions{
         data: Some(data),
         ..ro
@@ -155,6 +174,21 @@ pub fn delete(raw_url: &str, ro: RequestOptions) -> bool {
     request("DELETE", raw_url, ro)
 }
 
+fn get_body_contenttype(rodata: &Option<Body>) -> Option<(&'static str, &'static str)> {
+    match *rodata {
+        Some(ref body) => { match *body {
+                Body::FormUrlEncoded(_) => { 
+                    Some(("content-type", "application/x-www-formurlencoded"))
+                }
+                Body::JSON(_) => {
+                    Some(("content-type", "application/json"))
+                }
+            }
+        }
+        None => { None }
+    }
+}
+    
 /// Make a HTTP request and return a response (eventually)
 pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
     let parsed_url = Url::parse(raw_url);
@@ -197,22 +231,54 @@ pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
     let mut request_buf = String::new();
     let topline = format!("{method} {path} HTTP/1.0\r\n", method=method, path=path);
     request_buf.push_str(topline.as_slice());
+
+    let mut request_headers: Vec<(&str, &str)> = vec![];
     for (key, val_tuple) in ro.headers.iter() {
         for val in val_tuple.iter() {
-            let hdr = format!("{key}: {value}\r\n", key=key, value=val);
-            request_buf.push_str(hdr.as_slice());
+            request_headers.push((key.as_slice(), val.as_slice()));
         }
     }
-    if let Some(d) = ro.data {
-        if ro.headers.contains_key("content-type") {
 
+    // 1. determine what type of body it is.
+    // 2. add the correct content-type header 
+    // 3. get the body as a string
+    // 4. add the correct content-length header based on the string length
+    match get_body_contenttype(&ro.data) {
+        Some(hdrs) => {
+            request_headers.push(hdrs);
         }
+        None => {}
     }
-    if let Some(d) = ro.data {
-        let body = url_formencoded.serialize(d);
-        request_buf.push_str(body);
+
+    let s: &str = if ro.data.is_some() {
+        let body = ro.data.unwrap();
+        let s = match body {
+            Body::FormUrlEncoded(map) => { 
+                let vec = map_to_vec(map);
+                let a = form_urlencoded::serialize_owned(vec.as_slice());
+                a.as_slice().clone()
+            }
+            Body::JSON(j) => {
+                json::encode(&j).as_slice().clone()
+            }
+        };
+        let len = format!("{}", s.len());
+        // XXX: why does this need a clone?
+        let lens = len.as_slice().clone();
+        request_headers.push(("content-length", lens));
+        s
+    } else {
+        ""
+    };
+
+    for pair in request_headers.iter() {
+        let &(key, value) = pair;
+        let hdr = format!("{key}: {value}\r\n", key=key, value=value);
+        request_buf.push_str(hdr.as_slice());
     }
+
     request_buf.push_str("\r\n");
+    request_buf.push_str(s);
     println!("{}", request_buf);
     sock.write(request_buf.as_bytes());
     let mut reader = io::BufferedReader::new(sock);
@@ -251,6 +317,20 @@ fn test_ip_get() {
         ..Default::default()
     };
     get("http://96.126.98.124", ropts);
+    assert!(false)
+}
+
+#[test]
+fn test_post() {
+    let mut b = collections::HashMap::new();
+    b.insert("foo".to_string(), vec!["bar".to_string()]);
+    let ropts = RequestOptions{
+        timeout: time::Duration::seconds(1),
+        dns_timeout: time::Duration::seconds(1),
+        connect_timeout: time::Duration::seconds(1),
+        ..Default::default()
+    };
+    post("http://api.twilio.com", Body::FormUrlEncoded(b), ropts);
     assert!(false)
 }
 
