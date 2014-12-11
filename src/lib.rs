@@ -85,6 +85,51 @@ fn get_port(url: &Url) -> u16 {
     }
 }
 
+fn parse_version(httpvsn: &str) -> Result<int, &str> {
+    match httpvsn {
+        "HTTP/0.9" => Ok(9),
+        "HTTP/1.0" => Ok(10),
+        "HTTP/1.1" => Ok(11),
+        _ => {
+            let msg = format!("Bad status line: {}", httpvsn);
+            // XXX: why clone here? 
+            Err(msg.as_slice().clone())
+        }
+    }
+}
+
+fn parse_topline(topline: &str) -> Result<(int, int, &str), &str> {
+    // XXX read the RFC for http responses
+    let splits: Vec<&str> = topline.splitn(2, ' ').collect();
+    let (httpvsn, status_str, rest) = match splits.len() {
+        0 | 1 => return Err("Too few values"),
+        2 => {
+            let httpvsn = splits[0];
+            let status = splits[1];
+            (httpvsn, status, "")
+        },
+        3 => {
+            let httpvsn = splits[0];
+            let status_str = splits[1];
+            let rest = splits[2];
+            (httpvsn, status_str, rest)
+        },
+        _ => { return Err("Too many values") }
+    };
+    let vsn = match parse_version(httpvsn) {
+        Ok(vsn) => { vsn }
+        Err(e) => { return Err(e) }
+    };
+    let status = match from_str(status_str) {
+        Some(status) => status,
+        None => {
+            let msg = format!("Bad status line: {}", topline);
+            return Err(msg.as_slice().clone())
+        }
+    };
+    Ok((vsn, status, rest))
+}
+
 fn make_connection(host: &ip::IpAddr, port: ip::Port, timeout: time::Duration) -> io::IoResult<io::TcpStream> {
     let s = ip::SocketAddr{ip: *host, port: port};
     return io::TcpStream::connect_timeout(s, timeout);
@@ -221,13 +266,6 @@ pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
             }
         }
     }; 
-    let mut sock = match find_working_addr(addrs, port, ro.connect_timeout) {
-        Some(s) => { s }
-        None => {
-            println!("coludnt establish connection");
-            return false;
-        }
-    };
     let mut request_buf = String::new();
     let topline = format!("{method} {path} HTTP/1.0\r\n", method=method, path=path);
     request_buf.push_str(topline.as_slice());
@@ -280,6 +318,13 @@ pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
     request_buf.push_str("\r\n");
     request_buf.push_str(s);
     println!("{}", request_buf);
+    let mut sock = match find_working_addr(addrs, port, ro.connect_timeout) {
+        Some(s) => { s }
+        None => {
+            println!("coludnt establish connection");
+            return false;
+        }
+    };
     sock.write(request_buf.as_bytes());
     let mut reader = io::BufferedReader::new(sock);
     let rtopline = match reader.read_line() {
@@ -289,7 +334,15 @@ pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
             return false;
         }
     };
-    println!("{}", rtopline);
+    let (vsn, status, rest) = match parse_topline(rtopline.as_slice()) {
+        Ok((vsn, status, rest)) => {
+            (vsn, status, rest)
+        }
+        Err(e) => {
+            println!("{}", e)
+            return false;
+        }
+    };
     return true;
 }
 
@@ -355,4 +408,20 @@ fn test_get_port() {
 
     let httpuri = Url::parse("http://api.twilio.com").unwrap();
     assert_eq!(get_port(&httpuri), 80)
+}
+
+#[test]
+fn test_parse_version() {
+    assert_eq!(parse_version("HTTP/0.9"), Ok(9))
+    assert_eq!(parse_version("HTTP/1.0"), Ok(10))
+    assert_eq!(parse_version("HTTP/1.1"), Ok(11))
+    assert_eq!(parse_version(" HTTP/1.0"), Err("Bad status line:  HTTP/1.0"))
+    assert_eq!(parse_version("HTTP/1.5"), Err("Bad status line: HTTP/1.5"))
+    assert_eq!(parse_version(""), Err("Bad status line: "))
+}
+
+#[test]
+fn test_parse_topline() {
+    assert_eq!(parse_topline("HTTP/1.1 301 Moved"), Ok((11, 301, "Moved")))
+    assert_eq!(parse_topline("HTTP/0.9 301 Moved Permanently"), Ok((9, 301, "Moved Permanently")))
 }
