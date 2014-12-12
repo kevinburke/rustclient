@@ -99,7 +99,7 @@ fn parse_version(httpvsn: &str) -> Result<int, &str> {
 }
 
 fn parse_topline(topline: &str) -> Result<(int, int, &str), &str> {
-    // XXX read the RFC for http responses
+    // XXX read the RFC for http responses, is whitespace ok, etc.
     let splits: Vec<&str> = topline.splitn(2, ' ').collect();
     let (httpvsn, status_str, rest) = match splits.len() {
         0 | 1 => return Err("Too few values"),
@@ -166,9 +166,10 @@ pub struct RequestOptions {
     dns_timeout: time::Duration,
 }
 
-pub struct Response {
+pub struct Response<'r> {
     // XXX use custom types for these two.
     status: int,
+    status_description: &'r str,
     version: int,
     headers: collections::HashMap<String, Vec<String>>,
     body: io::BufferedReader<io::TcpStream>,
@@ -195,11 +196,11 @@ impl Default for RequestOptions {
     }
 }
 
-pub fn get(raw_url: &str, ro: RequestOptions) -> bool {
+pub fn get(raw_url: &str, ro: RequestOptions) -> Result<Response, &str> {
     request("GET", raw_url, ro)
 }
 
-pub fn post(raw_url: &str, data: Body, ro: RequestOptions) -> bool {
+pub fn post(raw_url: &str, data: Body, ro: RequestOptions) -> Result<Response, &str> {
     let ropost = RequestOptions{
         data: Some(data),
         ..ro
@@ -207,7 +208,7 @@ pub fn post(raw_url: &str, data: Body, ro: RequestOptions) -> bool {
     request("POST", raw_url, ropost)
 }
 
-pub fn put(raw_url: &str, data: Body, ro: RequestOptions) -> bool {
+pub fn put(raw_url: &str, data: Body, ro: RequestOptions) -> Result<Response, &str> {
     let ropost = RequestOptions{
         data: Some(data),
         ..ro
@@ -215,7 +216,7 @@ pub fn put(raw_url: &str, data: Body, ro: RequestOptions) -> bool {
     request("PUT", raw_url, ropost)
 }
 
-pub fn delete(raw_url: &str, ro: RequestOptions) -> bool {
+pub fn delete(raw_url: &str, ro: RequestOptions) -> Result<Response, &str> {
     request("DELETE", raw_url, ro)
 }
 
@@ -235,23 +236,22 @@ fn get_body_contenttype(rodata: &Option<Body>) -> Option<(&'static str, &'static
 }
     
 /// Make a HTTP request and return a response (eventually)
-pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
+pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Response<'r>, &'r str> {
     let parsed_url = Url::parse(raw_url);
     let url = match parsed_url {
         Ok(url) => { url }
         Err(e) => {
-            println!("{}", e);
-            return false;
+            return Err("bad url")
         }
     };
     let path = match url.serialize_path() {
         Some(p) => { p }
-        None => { return false }
+        None => { return Err("bad path") }
     };
     let port = get_port(&url);
     let dom = match url.domain() {
         Some(d) => { d }
-        None => { return false ; }
+        None => { return Err("bad domain") ; }
     };
     let addrs = match from_str::<ip::IpAddr>(dom) {
         Some(domain) => { vec![domain] }
@@ -260,8 +260,7 @@ pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
             match maybeaddrs {
                 Ok(addrs) => { addrs }
                 Err(e) => {
-                    println!("{}", e);
-                    return false;
+                    return Err("bad address");
                 }
             }
         }
@@ -321,8 +320,7 @@ pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
     let mut sock = match find_working_addr(addrs, port, ro.connect_timeout) {
         Some(s) => { s }
         None => {
-            println!("coludnt establish connection");
-            return false;
+            return Err("coludnt establish connection");
         }
     };
     sock.write(request_buf.as_bytes());
@@ -330,20 +328,37 @@ pub fn request(method: &str, raw_url: &str, ro: RequestOptions) -> bool {
     let rtopline = match reader.read_line() {
         Ok(rt) => { rt }
         Err(e) => {
-            println!("{}", e);
-            return false;
+            return Err("couldnt read a line");
         }
     };
     let (vsn, status, rest) = match parse_topline(rtopline.as_slice()) {
-        Ok((vsn, status, rest)) => {
-            (vsn, status, rest)
-        }
+        Ok((vsn, status, rest)) => { (vsn, status, rest) }
         Err(e) => {
-            println!("{}", e)
-            return false;
+            return Err(e);
         }
     };
-    return true;
+    let mut response_headers: Vec<(&str, &str)> = vec![];
+    while true {
+        let line = match reader.read_line() {
+            Ok(rt) => { rt }
+            Err(e) => {
+                return Err("couldnt read a line");
+            }
+        };
+        if is_last(&line) {
+            break
+        }
+    }
+    let r = Response{
+        version: vsn,
+        status_description: rest,
+        status: status,
+    };
+    return Ok(r);
+}
+
+fn is_last(c: &String) -> bool {
+
 }
 
 #[test]
