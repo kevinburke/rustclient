@@ -358,7 +358,8 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
 }
 
 fn is_last(c: &String) -> bool {
-
+    let cs = c.as_slice();
+    cs == "\r\n" || cs == "\n"
 }
 
 #[test]
@@ -439,4 +440,13 @@ fn test_parse_version() {
 fn test_parse_topline() {
     assert_eq!(parse_topline("HTTP/1.1 301 Moved"), Ok((11, 301, "Moved")))
     assert_eq!(parse_topline("HTTP/0.9 301 Moved Permanently"), Ok((9, 301, "Moved Permanently")))
+}
+
+#[test]
+fn test_is_last() {
+    assert_eq!(is_last(&"\r\n".to_string()), true)
+    assert_eq!(is_last(&"\n".to_string()), true)
+    assert_eq!(is_last(&"foo".to_string()), false)
+    assert_eq!(is_last(&"\n ".to_string()), false)
+    assert_eq!(is_last(&" \n".to_string()), false)
 }
