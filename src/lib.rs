@@ -337,7 +337,17 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
             return Err(e);
         }
     };
-    let mut response_headers: Vec<(&str, &str)> = vec![];
+    let headers = parse_response_headers(&reader);
+    let r = Response{
+        version: vsn,
+        status_description: rest,
+        status: status,
+    };
+    return Ok(r);
+}
+
+fn parse_response_headers(reader: &mut io::BufferedReader<io::TcpStream>) -> Result<collections::HashMap<String, Vec<String>>, &str> {
+    let mut response_headers: collections::HashMap<String, Vec<String>> = collections::HashMap::new();
     while true {
         let line = match reader.read_line() {
             Ok(rt) => { rt }
@@ -348,13 +358,19 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
         if is_last(&line) {
             break
         }
+        let maybe_i = line.find(':');
+        let i = match maybe_i {
+            Some(i) => i,
+            None => return Err(format!("malformed HTTP header line: {}", line).as_slice()),
+        };
+        let mut end_key = i;
+        // header keys are ascii-only, so indexing is ok
+        while end_key > 0 && line.char_at(end_key) == ' ' {
+            end_key -= 1
+        }
+        // XXX: case-insensitive comparisons
     }
-    let r = Response{
-        version: vsn,
-        status_description: rest,
-        status: status,
-    };
-    return Ok(r);
+    return Ok(response_headers)
 }
 
 fn is_last(c: &String) -> bool {
