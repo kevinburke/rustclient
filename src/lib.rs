@@ -2,7 +2,7 @@ extern crate serialize;
 extern crate url;
 
 use serialize::json;
-use std::collections;
+use std::collections::HashMap;
 use std::comm;
 use std::default::Default;
 use std::io;
@@ -17,12 +17,12 @@ use url::form_urlencoded;
 static VERSION: &'static str = "0.0.1";
 
 pub enum Body {
-    FormUrlEncoded(collections::HashMap<String, Vec<String>>),
+    FormUrlEncoded(HashMap<String, Vec<String>>),
     JSON(json::Json),
 }
 
 // ugh. rust-url requires [(key, val)] combos, but we have {key: [val1, val2]}
-fn map_to_vec(map: collections::HashMap<String, Vec<String>>) -> Vec<(String, String)> {
+fn map_to_vec(map: HashMap<String, Vec<String>>) -> Vec<(String, String)> {
     let mut vec = Vec::new();
     for (key, val_tuple) in map.iter() {
         for val in val_tuple.iter() {
@@ -85,7 +85,7 @@ fn get_port(url: &Url) -> u16 {
     }
 }
 
-fn parse_version(httpvsn: &str) -> Result<int, &str> {
+fn parse_version(httpvsn: &str) -> Result<int, String> {
     match httpvsn {
         "HTTP/0.9" => Ok(9),
         "HTTP/1.0" => Ok(10),
@@ -93,16 +93,16 @@ fn parse_version(httpvsn: &str) -> Result<int, &str> {
         _ => {
             let msg = format!("Bad status line: {}", httpvsn);
             // XXX: why clone here? 
-            Err(msg.as_slice().clone())
+            Err(msg)
         }
     }
 }
 
-fn parse_topline(topline: &str) -> Result<(int, int, &str), &str> {
+fn parse_topline(topline: &str) -> Result<(int, int, &str), String> {
     // XXX read the RFC for http responses, is whitespace ok, etc.
     let splits: Vec<&str> = topline.splitn(2, ' ').collect();
     let (httpvsn, status_str, rest) = match splits.len() {
-        0 | 1 => return Err("Too few values"),
+        0 | 1 => return Err("Too few values".to_string()),
         2 => {
             let httpvsn = splits[0];
             let status = splits[1];
@@ -114,17 +114,17 @@ fn parse_topline(topline: &str) -> Result<(int, int, &str), &str> {
             let rest = splits[2];
             (httpvsn, status_str, rest)
         },
-        _ => { return Err("Too many values") }
+        _ => { return Err("Too many values".to_string()) }
     };
     let vsn = match parse_version(httpvsn) {
         Ok(vsn) => { vsn }
-        Err(e) => { return Err(e) }
+        Err(e) => { return Err(e.to_string()) }
     };
     let status = match from_str(status_str) {
         Some(status) => status,
         None => {
             let msg = format!("Bad status line: {}", topline);
-            return Err(msg.as_slice().clone())
+            return Err(msg)
         }
     };
     Ok((vsn, status, rest))
@@ -152,14 +152,14 @@ fn find_working_addr(addrs: Vec<ip::IpAddr>, port: ip::Port, timeout: time::Dura
 }
 
 // XXX: see https://github.com/rust-lang/rust/issues/19650
-// pub type Header = collections::HashMap<String, Vec<String>>;
+// pub type Header = HashMap<String, Vec<String>>;
 
 pub struct RequestOptions {
-    headers: collections::HashMap<String, Vec<String>>,
+    headers: HashMap<String, Vec<String>>,
     verify: bool,
     // XXX: should these be str's ?
     data: Option<Body>,
-    params: Option<collections::HashMap<String, Vec<String>>>,
+    params: Option<HashMap<String, Vec<String>>>,
     auth: Option<Vec<String>>,
     timeout: time::Duration,
     connect_timeout: time::Duration,
@@ -171,17 +171,17 @@ pub struct Response<'r> {
     status: int,
     status_description: &'r str,
     version: int,
-    headers: collections::HashMap<String, Vec<String>>,
+    headers: HashMap<String, Vec<String>>,
     body: io::BufferedReader<io::TcpStream>,
 }
 
 impl Default for RequestOptions {
     fn default() -> RequestOptions {
-        let mut h = collections::HashMap::new();
+        let mut h = HashMap::new();
         let vsn = format!("rustclient/{}", VERSION);
         h.insert("User-Agent".to_string(), vec![vsn]);
         let nodata: Option<Body> = None;
-        let noparams: Option<collections::HashMap<String, Vec<String>>> = None;
+        let noparams: Option<HashMap<String, Vec<String>>> = None;
         let noauth: Option<Vec<String>> = None;
         return RequestOptions{ 
             headers: h,
@@ -220,14 +220,15 @@ pub fn delete(raw_url: &str, ro: RequestOptions) -> Result<Response, &str> {
     request("DELETE", raw_url, ro)
 }
 
-fn get_body_contenttype(rodata: &Option<Body>) -> Option<(&'static str, &'static str)> {
+fn get_body_contenttype(rodata: &Option<Body>) -> Option<&'static str> {
+    // Don't unpack the rodata just yet
     match *rodata {
         Some(ref body) => { match *body {
                 Body::FormUrlEncoded(_) => { 
-                    Some(("content-type", "application/x-www-formurlencoded"))
+                    Some("application/x-www-formurlencoded")
                 }
                 Body::JSON(_) => {
-                    Some(("content-type", "application/json"))
+                    Some("application/json")
                 }
             }
         }
@@ -269,53 +270,53 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
     let topline = format!("{method} {path} HTTP/1.0\r\n", method=method, path=path);
     request_buf.push_str(topline.as_slice());
 
-    let mut request_headers: Vec<(&str, &str)> = vec![];
-    for (key, val_tuple) in ro.headers.iter() {
-        for val in val_tuple.iter() {
-            request_headers.push((key.as_slice(), val.as_slice()));
-        }
-    }
+    let mut request_headers: HashMap<String, Vec<String>> = ro.headers.clone();
 
     // 1. determine what type of body it is.
     // 2. add the correct content-type header 
     // 3. get the body as a string
     // 4. add the correct content-length header based on the string length
     match get_body_contenttype(&ro.data) {
-        Some(hdrs) => {
-            request_headers.push(hdrs);
+        Some(ctype) => {
+            if !request_headers.contains_key(&"Content-Type".to_string()) {
+                request_headers.insert("Content-Type".to_string(), 
+                                       vec![ctype.to_string()]);
+            }
         }
         None => {}
     }
 
-    let s: &str = if ro.data.is_some() {
+    let (s, hdrs): (String, Vec<String>) = if ro.data.is_some() {
         let body = ro.data.unwrap();
         let s = match body {
             Body::FormUrlEncoded(map) => { 
                 let vec = map_to_vec(map);
-                let a = form_urlencoded::serialize_owned(vec.as_slice());
-                a.as_slice().clone()
+                form_urlencoded::serialize_owned(vec.as_slice())
             }
             Body::JSON(j) => {
-                json::encode(&j).as_slice().clone()
+                json::encode(&j)
             }
         };
-        let len = format!("{}", s.len());
-        // XXX: why does this need a clone?
-        let lens = len.as_slice().clone();
-        request_headers.push(("content-length", lens));
-        s
+        let len: String = format!("{}", s.len());
+        (s, vec![len])
     } else {
-        ""
+        ("".to_string(), vec![])
     };
 
-    for pair in request_headers.iter() {
-        let &(key, value) = pair;
-        let hdr = format!("{key}: {value}\r\n", key=key, value=value);
-        request_buf.push_str(hdr.as_slice());
+    for hdr in hdrs.iter() {
+        // in this case we want to override a provided value.
+        request_headers.insert("Content-Length".to_string(), vec![*hdr]);
+    }
+
+    for (key, value_tuple) in request_headers.iter() {
+        for val in value_tuple.iter() {
+            let hdr = format!("{key}: {val}\r\n", key=key, val=val);
+            request_buf.push_str(hdr.as_slice());
+        }
     }
 
     request_buf.push_str("\r\n");
-    request_buf.push_str(s);
+    request_buf.push_str(s.as_slice());
     println!("{}", request_buf);
     let mut sock = match find_working_addr(addrs, port, ro.connect_timeout) {
         Some(s) => { s }
@@ -331,23 +332,29 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
             return Err("couldnt read a line");
         }
     };
-    let (vsn, status, rest) = match parse_topline(rtopline.as_slice()) {
+    let (vsn, status, rest) : (int, int, &str) = match parse_topline(rtopline.as_slice()) {
         Ok((vsn, status, rest)) => { (vsn, status, rest) }
         Err(e) => {
-            return Err(e);
+            return Err(e.as_slice().clone());
         }
     };
-    let headers = parse_response_headers(&reader);
+    let headers = match parse_response_headers(&mut reader) {
+        Ok(h) => { h }
+        Err(e) => return Err(e)
+    };
+    
     let r = Response{
         version: vsn,
         status_description: rest,
         status: status,
+        headers: headers,
+        body: reader,
     };
     return Ok(r);
 }
 
-fn parse_response_headers(reader: &mut io::BufferedReader<io::TcpStream>) -> Result<collections::HashMap<String, Vec<String>>, &str> {
-    let mut response_headers: collections::HashMap<String, Vec<String>> = collections::HashMap::new();
+fn parse_response_headers(reader: &mut io::BufferedReader<io::TcpStream>) -> Result<HashMap<String, Vec<String>>, &str> {
+    let mut response_headers: HashMap<String, Vec<String>> = HashMap::new();
     while true {
         let line = match reader.read_line() {
             Ok(rt) => { rt }
@@ -359,7 +366,8 @@ fn parse_response_headers(reader: &mut io::BufferedReader<io::TcpStream>) -> Res
             break
         }
         let maybe_i = line.find(':');
-        let i = match maybe_i {
+        // XXX: figure out how to write this without mutating state
+        let mut i = match maybe_i {
             Some(i) => i,
             None => return Err(format!("malformed HTTP header line: {}", line).as_slice()),
         };
@@ -368,7 +376,19 @@ fn parse_response_headers(reader: &mut io::BufferedReader<io::TcpStream>) -> Res
         while end_key > 0 && line.char_at(end_key) == ' ' {
             end_key -= 1
         }
+        let key = line.slice(0, end_key);
         // XXX: case-insensitive comparisons
+        i += 1;
+        while i <= line.len() && (line.char_at(end_key) == ' ' || line.char_at(end_key) == '\t') {
+            i += 1
+        }
+        let value = line.slice(i, line.len());
+        if (response_headers.contains_key(key)) {
+            let vec = response_headers.get(key).unwrap();
+            vec.push(value.to_string());
+        } else {
+            response_headers.insert(key.to_string(), vec![value.to_string()]);
+        }
     }
     return Ok(response_headers)
 }
@@ -376,6 +396,16 @@ fn parse_response_headers(reader: &mut io::BufferedReader<io::TcpStream>) -> Res
 fn is_last(c: &String) -> bool {
     let cs = c.as_slice();
     cs == "\r\n" || cs == "\n"
+}
+
+fn add_kv(d: &mut HashMap<String, Vec<String>>, key: String, value: String) -> &mut HashMap<String, Vec<String>> {
+    if d.contains_key(&key) {
+        let vec = d.get(&key).unwrap();
+        vec.push(value);
+    } else {
+        d.insert(key, vec![value]);
+    }
+    d
 }
 
 #[test]
@@ -392,7 +422,7 @@ fn test_get() {
 
 #[test]
 fn test_ip_get() {
-    let mut h = collections::HashMap::new();
+    let mut h = HashMap::new();
     h.insert("Host".to_string(), vec!["jsonip.com".to_string()]);
     let ropts = RequestOptions{
         headers: h,
@@ -407,7 +437,7 @@ fn test_ip_get() {
 
 #[test]
 fn test_post() {
-    let mut b = collections::HashMap::new();
+    let mut b = HashMap::new();
     b.insert("foo".to_string(), vec!["bar".to_string()]);
     let ropts = RequestOptions{
         timeout: time::Duration::seconds(1),
