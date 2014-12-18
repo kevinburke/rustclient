@@ -45,7 +45,7 @@ pub fn lookup(host: &str, timeout_duration: time::Duration) -> io::IoResult<Vec<
     let detail = format!("Failed to resolve {} after {} milliseconds", 
                          ownedhost, timeout_duration.num_milliseconds());
 
-    spawn(proc() {
+    spawn(move || {
         tx.send(addrinfo::get_host_addresses(ownedhost.as_slice()));
     });
 
@@ -98,7 +98,7 @@ fn parse_version(httpvsn: &str) -> Result<int, String> {
     }
 }
 
-fn parse_topline(topline: &str) -> Result<(int, int, &str), String> {
+fn parse_topline(topline: &str) -> Result<(int, int, String), String> {
     // XXX read the RFC for http responses, is whitespace ok, etc.
     let splits: Vec<&str> = topline.splitn(2, ' ').collect();
     let (httpvsn, status_str, rest) = match splits.len() {
@@ -127,7 +127,7 @@ fn parse_topline(topline: &str) -> Result<(int, int, &str), String> {
             return Err(msg)
         }
     };
-    Ok((vsn, status, rest))
+    Ok((vsn, status, rest.to_string()))
 }
 
 fn make_connection(host: &ip::IpAddr, port: ip::Port, timeout: time::Duration) -> io::IoResult<io::TcpStream> {
@@ -326,16 +326,17 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
     };
     sock.write(request_buf.as_bytes());
     let mut reader = io::BufferedReader::new(sock);
-    let rtopline = match reader.read_line() {
+    let rtopline : String = match reader.read_line() {
         Ok(rt) => { rt }
         Err(e) => {
             return Err("couldnt read a line");
         }
     };
-    let (vsn, status, rest) : (int, int, &str) = match parse_topline(rtopline.as_slice()) {
+    let rtopline_ptr: &'r str = rtopline.as_slice();
+    let (vsn, status, rest) : (int, int, String) = match parse_topline(rtopline_ptr) {
         Ok((vsn, status, rest)) => { (vsn, status, rest) }
         Err(e) => {
-            return Err(e.as_slice().clone());
+            return Err(e);
         }
     };
     let headers = match parse_response_headers(&mut reader) {
@@ -345,7 +346,7 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
     
     let r = Response{
         version: vsn,
-        status_description: rest,
+        status_description: rest.as_slice(),
         status: status,
         headers: headers,
         body: reader,
