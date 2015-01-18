@@ -7,5 +7,4 @@ description = "a http client for rust"
 license = "MIT"
 
 [dependencies.url]
-url = "~0.2.5"
-
+url = "~0.2.16"
