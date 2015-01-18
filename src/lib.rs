@@ -461,39 +461,39 @@ fn test_domain() {
 #[test]
 fn test_get_port() {
     let httpsuri = Url::parse("https://api.twilio.com").unwrap();
-    assert_eq!(get_port(&httpsuri), 443)
+    assert_eq!(get_port(&httpsuri), 443);
 
     let httpsuriport = Url::parse("https://api.twilio.com:5678").unwrap();
-    assert_eq!(get_port(&httpsuriport), 5678)
+    assert_eq!(get_port(&httpsuriport), 5678);
 
     let httpuriport = Url::parse("http://api.twilio.com:5678").unwrap();
-    assert_eq!(get_port(&httpuriport), 5678)
+    assert_eq!(get_port(&httpuriport), 5678);
 
     let httpuri = Url::parse("http://api.twilio.com").unwrap();
-    assert_eq!(get_port(&httpuri), 80)
+    assert_eq!(get_port(&httpuri), 80);
 }
 
 #[test]
 fn test_parse_version() {
-    assert_eq!(parse_version("HTTP/0.9"), Ok(9))
-    assert_eq!(parse_version("HTTP/1.0"), Ok(10))
-    assert_eq!(parse_version("HTTP/1.1"), Ok(11))
-    assert_eq!(parse_version(" HTTP/1.0"), Err("Bad status line:  HTTP/1.0"))
-    assert_eq!(parse_version("HTTP/1.5"), Err("Bad status line: HTTP/1.5"))
-    assert_eq!(parse_version(""), Err("Bad status line: "))
+    assert_eq!(parse_version("HTTP/0.9"), Ok(9));
+    assert_eq!(parse_version("HTTP/1.0"), Ok(10));
+    assert_eq!(parse_version("HTTP/1.1"), Ok(11));
+    assert_eq!(parse_version(" HTTP/1.0"), Err("Bad status line:  HTTP/1.0"));
+    assert_eq!(parse_version("HTTP/1.5"), Err("Bad status line: HTTP/1.5"));
+    assert_eq!(parse_version(""), Err("Bad status line: "));
 }
 
 #[test]
 fn test_parse_topline() {
-    assert_eq!(parse_topline("HTTP/1.1 301 Moved"), Ok((11, 301, "Moved")))
-    assert_eq!(parse_topline("HTTP/0.9 301 Moved Permanently"), Ok((9, 301, "Moved Permanently")))
+    assert_eq!(parse_topline("HTTP/1.1 301 Moved"), Ok((11, 301, "Moved")));
+    assert_eq!(parse_topline("HTTP/0.9 301 Moved Permanently"), Ok((9, 301, "Moved Permanently")));
 }
 
 #[test]
 fn test_is_last() {
-    assert_eq!(is_last(&"\r\n".to_string()), true)
-    assert_eq!(is_last(&"\n".to_string()), true)
-    assert_eq!(is_last(&"foo".to_string()), false)
-    assert_eq!(is_last(&"\n ".to_string()), false)
-    assert_eq!(is_last(&" \n".to_string()), false)
+    assert_eq!(is_last(&"\r\n".to_string()), true);
+    assert_eq!(is_last(&"\n".to_string()), true);
+    assert_eq!(is_last(&"foo".to_string()), false);
+    assert_eq!(is_last(&"\n ".to_string()), false);
+    assert_eq!(is_last(&" \n".to_string()), false);
 }
