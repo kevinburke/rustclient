@@ -11,6 +11,7 @@ use std::io::net::ip;
 use std::io::net::addrinfo;
 use std::str;
 use std::sync::mpsc;
+use std::thread::Thread;
 
 use url::{Url};
 use url::form_urlencoded;
@@ -46,7 +47,7 @@ pub fn lookup(host: &str, timeout_duration: time::Duration) -> io::IoResult<Vec<
     let detail = format!("Failed to resolve {} after {} milliseconds", 
                          ownedhost, timeout_duration.num_milliseconds());
 
-    spawn(move || {
+    Thread::spawn(move || {
         tx.send(addrinfo::get_host_addresses(ownedhost.as_slice()));
     });
 
