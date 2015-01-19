@@ -3,7 +3,7 @@ extern crate url;
 
 use serialize::json;
 use std::collections::HashMap;
-use std::comm;
+use std::sync::mpsc;
 use std::default::Default;
 use std::io;
 use std::time;
@@ -38,7 +38,7 @@ fn map_to_vec(map: HashMap<String, Vec<String>>) -> Vec<(String, String)> {
 /// `timeout_duration` if the DNS server does not return a response.
 pub fn lookup(host: &str, timeout_duration: time::Duration) -> io::IoResult<Vec<ip::IpAddr>> {
     let ownedhost = host.into_string();
-    let (tx, rx): (Sender<io::IoResult<Vec<ip::IpAddr>>>, Receiver<io::IoResult<Vec<ip::IpAddr>>>) = comm::channel();
+    let (tx, rx): (Sender<io::IoResult<Vec<ip::IpAddr>>>, Receiver<io::IoResult<Vec<ip::IpAddr>>>) = mpsc::channel();
     let mut t = timer::Timer::new().unwrap();
     let timeout = t.oneshot(timeout_duration);
 
@@ -85,7 +85,7 @@ fn get_port(url: &Url) -> u16 {
     }
 }
 
-fn parse_version(httpvsn: &str) -> Result<int, String> {
+fn parse_version(httpvsn: &str) -> Result<u8, String> {
     match httpvsn {
         "HTTP/0.9" => Ok(9),
         "HTTP/1.0" => Ok(10),
@@ -98,7 +98,7 @@ fn parse_version(httpvsn: &str) -> Result<int, String> {
     }
 }
 
-fn parse_topline(topline: &str) -> Result<(int, int, String), String> {
+fn parse_topline(topline: &str) -> Result<(u8, u16, String), String> {
     // XXX read the RFC for http responses, is whitespace ok, etc.
     let splits: Vec<&str> = topline.splitn(2, ' ').collect();
     let (httpvsn, status_str, rest) = match splits.len() {
@@ -168,9 +168,9 @@ pub struct RequestOptions {
 
 pub struct Response<'r> {
     // XXX use custom types for these two.
-    status: int,
+    status: u16,
     status_description: &'r str,
-    version: int,
+    version: u8,
     headers: HashMap<String, Vec<String>>,
     body: io::BufferedReader<io::TcpStream>,
 }
@@ -333,7 +333,7 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
         }
     };
     let rtopline_ptr: &'r str = rtopline.as_slice();
-    let (vsn, status, rest) : (int, int, String) = match parse_topline(rtopline_ptr) {
+    let (vsn, status, rest) : (u8, u16, String) = match parse_topline(rtopline_ptr) {
         Ok((vsn, status, rest)) => { (vsn, status, rest) }
         Err(e) => {
             return Err(e);
