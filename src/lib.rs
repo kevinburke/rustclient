@@ -3,13 +3,14 @@ extern crate url;
 
 use serialize::json;
 use std::collections::HashMap;
-use std::sync::mpsc;
 use std::default::Default;
 use std::io;
 use std::time;
 use std::io::timer;
 use std::io::net::ip;
 use std::io::net::addrinfo;
+use std::str;
+use std::sync::mpsc;
 
 use url::{Url};
 use url::form_urlencoded;
@@ -38,7 +39,7 @@ fn map_to_vec(map: HashMap<String, Vec<String>>) -> Vec<(String, String)> {
 /// `timeout_duration` if the DNS server does not return a response.
 pub fn lookup(host: &str, timeout_duration: time::Duration) -> io::IoResult<Vec<ip::IpAddr>> {
     let ownedhost = host.into_string();
-    let (tx, rx): (Sender<io::IoResult<Vec<ip::IpAddr>>>, Receiver<io::IoResult<Vec<ip::IpAddr>>>) = mpsc::channel();
+    let (tx, rx): (mpsc::Sender<io::IoResult<Vec<ip::IpAddr>>>, mpsc::Receiver<io::IoResult<Vec<ip::IpAddr>>>) = mpsc::channel();
     let mut t = timer::Timer::new().unwrap();
     let timeout = t.oneshot(timeout_duration);
 
@@ -66,7 +67,7 @@ pub fn lookup(host: &str, timeout_duration: time::Duration) -> io::IoResult<Vec<
 
 /// Checks if a domain is an IP address or a hostname
 fn domain_is_ipaddr(domain: &str) -> bool {
-    return from_str::<ip::IpAddr>(domain).is_some()
+    return domain.parse().is_some()
 }
 
 fn get_port(url: &Url) -> u16 {
@@ -120,7 +121,7 @@ fn parse_topline(topline: &str) -> Result<(u8, u16, String), String> {
         Ok(vsn) => { vsn }
         Err(e) => { return Err(e.to_string()) }
     };
-    let status = match from_str(status_str) {
+    let status = match status_str.parse() {
         Some(status) => status,
         None => {
             let msg = format!("Bad status line: {}", topline);
@@ -254,7 +255,7 @@ pub fn request<'r>(method: &str, raw_url: &str, ro: RequestOptions) -> Result<Re
         Some(d) => { d }
         None => { return Err("bad domain") ; }
     };
-    let addrs = match from_str::<ip::IpAddr>(dom) {
+    let addrs = match dom.parse() {
         Some(domain) => { vec![domain] }
         None => {
             let maybeaddrs = lookup(dom, ro.dns_timeout);
